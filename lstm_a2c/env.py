@@ -2,10 +2,18 @@ import gym
 import torch
 import numpy as np
 from copy import deepcopy
-from utils import pre_process
 from torch.multiprocessing import Process
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+
+# TODO: Implement this
+def cat_values(obs):
+    """
+    Concatenate the values of the NamedTuple/Observation/Dictionary state
+    """
+    raise NotImplementedError()
+    return np.zeros([2, 3])
 
 
 class EnvWorker(Process):
@@ -17,51 +25,45 @@ class EnvWorker(Process):
         self.init_state()
 
     def init_state(self):
-        state = self.env.reset()
+        obs = self.env.reset()
         
-        state, _, _, _ = self.env.step(1)
-        state = pre_process(state)
-        self.history = np.moveaxis(state, -1, 0)
+        obs, _, _, _ = self.env.step(1)
+        obs = cat_values(obs)
+        self.history = np.moveaxis(obs, -1, 0)
 
     def run(self):
         super(EnvWorker, self).run()
 
         episode = 0
         steps = 0
-        score = 0
-        life = 5
-        dead = False
+        total_reward = 0
+        crashed = False
 
         while True:
             if self.render:
                 self.env.render()
 
             action = self.child_conn.recv()
-            next_state, reward, done, info = self.env.step(action + 1)
-            
-            if life > info['ale.lives']:
-                dead = True
-                life = info['ale.lives']
+            next_obs, reward, done, info = self.env.step(action + 1)
 
-            next_state = pre_process(next_state)
-            self.history = np.moveaxis(next_state, -1, 0)
+            # TODO: pre-process next_obs to see if vehicle collided
+            if False:  # TODO: replace here
+                crashed = True
+
+            next_obs = cat_values(next_obs)
+            self.history = np.moveaxis(next_obs, -1, 0)
 
             steps += 1
-            score += reward
+            total_reward += reward
 
-            self.child_conn.send([deepcopy(self.history), reward, dead, done])
+            self.child_conn.send([deepcopy(self.history), reward, crashed, done])
 
-            if done and dead:
-                # print('{} episode | score: {:2f} | steps: {}'.format(
-                #     episode, score, steps
+            if done or crashed:
+                # print('{} episode | total_reward: {:2f} | steps: {}'.format(
+                #     episode, total_reward, steps
                 # ))
                 episode += 1
                 steps = 0
-                score = 0
-                dead = False
-                life = 5
-                self.init_state()
-
-            if dead:
-                dead = False
+                total_reward = 0
+                crashed = False
                 self.init_state()

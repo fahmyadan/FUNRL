@@ -15,6 +15,8 @@ from train import train_model
 from env import EnvWorker
 from memory import Memory
 
+MEMORY_LENGTH = 16
+
 parser = argparse.ArgumentParser()
 parser.add_argument('--env_name', type=str, default="BreakoutDeterministic-v4", help='')
 parser.add_argument('--load_model', type=str, default=None)
@@ -77,17 +79,18 @@ def main():
     count = 0
     grad_norm = 0
 
+    # TODO: modify size based on new observation
     histories = torch.zeros([args.num_envs, 3, 84, 84]).to(device)
     
-    m_hx = torch.zeros(args.num_envs, num_actions * 16).to(device)
-    m_cx = torch.zeros(args.num_envs, num_actions * 16).to(device)
+    m_hx = torch.zeros(args.num_envs, num_actions * MEMORY_LENGTH).to(device)
+    m_cx = torch.zeros(args.num_envs, num_actions * MEMORY_LENGTH).to(device)
     m_lstm = (m_hx, m_cx)
 
-    w_hx = torch.zeros(args.num_envs, num_actions * 16).to(device)
-    w_cx = torch.zeros(args.num_envs, num_actions * 16).to(device)
+    w_hx = torch.zeros(args.num_envs, num_actions * MEMORY_LENGTH).to(device)
+    w_cx = torch.zeros(args.num_envs, num_actions * MEMORY_LENGTH).to(device)
     w_lstm = (w_hx, w_cx)
 
-    goals_horizon = torch.zeros(args.num_envs, args.horizon + 1, num_actions * 16).to(device)
+    goals_horizon = torch.zeros(args.num_envs, args.horizon + 1, num_actions * MEMORY_LENGTH).to(device)
 
     while True:
         count += 1
@@ -107,31 +110,31 @@ def main():
 
             for i, (parent_conn, action) in enumerate(zip(parent_conns, actions)):
                 parent_conn.send(action)
-                next_history, reward, dead, done = parent_conn.recv()
+                next_history, reward, crashed, done = parent_conn.recv()
                 next_histories.append(next_history)
                 rewards.append(reward)
-                masks.append(1 - dead)
+                masks.append(1 - crashed)
                 dones.append(done)
                 
-                if dead:
-                    m_hx_mask = torch.ones(args.num_envs, num_actions * 16).to(device)
+                if crashed:
+                    m_hx_mask = torch.ones(args.num_envs, num_actions * MEMORY_LENGTH).to(device)
                     m_hx_mask[i, :] = m_hx_mask[i, :]*0
-                    m_cx_mask = torch.ones(args.num_envs, num_actions * 16).to(device)
+                    m_cx_mask = torch.ones(args.num_envs, num_actions * MEMORY_LENGTH).to(device)
                     m_cx_mask[i, :] = m_cx_mask[i, :]*0
                     m_hx, m_cx = m_lstm
                     m_hx = m_hx * m_hx_mask
                     m_cx = m_cx * m_cx_mask
                     m_lstm = (m_hx, m_cx)
                     
-                    w_hx_mask = torch.ones(args.num_envs, num_actions * 16).to(device)
+                    w_hx_mask = torch.ones(args.num_envs, num_actions * MEMORY_LENGTH).to(device)
                     w_hx_mask[i, :] = w_hx_mask[i, :]*0
-                    w_cx_mask = torch.ones(args.num_envs, num_actions * 16).to(device)
+                    w_cx_mask = torch.ones(args.num_envs, num_actions * MEMORY_LENGTH).to(device)
                     w_cx_mask[i, :] = w_cx_mask[i, :]*0                    
                     w_hx, w_cx = w_lstm
                     w_hx = w_hx * w_hx_mask
                     w_cx = w_cx * w_cx_mask
                     w_lstm = (w_hx, w_cx)
-                    goal_init = torch.zeros(args.horizon+1, num_actions * 16).to(device)
+                    goal_init = torch.zeros(args.horizon + 1, num_actions * MEMORY_LENGTH).to(device)
                     goals_horizon[i] = goal_init
 
                     
